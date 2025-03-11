@@ -1,17 +1,25 @@
 from flask import Flask, request, jsonify, send_from_directory
-from flask_cors import CORS  # Import CORS
+from flask_cors import CORS
 import pandas as pd
 from datetime import datetime
 import os
 
 app = Flask(__name__, static_folder='./build', static_url_path='/')
-CORS(app)  # Enable CORS for all routes
+CORS(app)
 
 # Define CSV file paths
 FIRST_STAGE_CSV = 'data/csv1.csv'
 SECOND_STAGE_CSV = 'data/csv2.csv'
 FIRST_STAGE_ENTRIES_CSV = 'data/csv3.csv'
 SECOND_STAGE_ENTRIES_CSV = 'data/csv4.csv'
+
+# Mapping of CSV IDs to file paths
+CSV_MAPPING = {
+    'first-stage-credentials': FIRST_STAGE_CSV,
+    'second-stage-credentials': SECOND_STAGE_CSV,
+    'first-stage-entries': FIRST_STAGE_ENTRIES_CSV,
+    'second-stage-entries': SECOND_STAGE_ENTRIES_CSV
+}
 
 # Ensure data directory exists
 os.makedirs('data', exist_ok=True)
@@ -136,6 +144,109 @@ def verify_second_stage():
     except Exception as e:
         print(f"Error: {str(e)}")
         return jsonify({'success': False, 'error': str(e)}), 500
+
+# New Routes for CSV Management
+# 1. Route to get all available CSVs
+@app.route('/api/csv-files', methods=['GET'])
+def get_csv_files():
+    return jsonify({
+        'files': [
+            {'id': 'first-stage-credentials', 'name': 'First Stage Credentials'},
+            {'id': 'second-stage-credentials', 'name': 'Second Stage Credentials'},
+            {'id': 'first-stage-entries', 'name': 'First Stage Entries'},
+            {'id': 'second-stage-entries', 'name': 'Second Stage Entries'}
+        ]
+    })
+
+# 2. Route to get data from a specific CSV
+@app.route('/api/csv/<csv_id>', methods=['GET'])
+def get_csv_data(csv_id):
+    if csv_id not in CSV_MAPPING:
+        return jsonify({'error': 'CSV not found'}), 404
+    
+    try:
+        df = pd.read_csv(CSV_MAPPING[csv_id])
+        return jsonify({'data': df.to_dict(orient='records')})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+# 3. Route to add a new row to a CSV
+@app.route('/api/csv/<csv_id>', methods=['POST'])
+def add_csv_row(csv_id):
+    if csv_id not in CSV_MAPPING:
+        return jsonify({'error': 'CSV not found'}), 404
+    
+    try:
+        data = request.json
+        df = pd.read_csv(CSV_MAPPING[csv_id])
+        
+        # For entry CSVs, automatically add timestamp if not provided
+        if csv_id in ['first-stage-entries', 'second-stage-entries'] and 'timestamp' not in data:
+            data['timestamp'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        
+        new_row = pd.DataFrame([data])
+        df = pd.concat([df, new_row])
+        df.to_csv(CSV_MAPPING[csv_id], index=False)
+        
+        return jsonify({'success': True, 'data': df.to_dict(orient='records')})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+# 4. Route to update a row in a CSV
+@app.route('/api/csv/<csv_id>/<int:row_index>', methods=['PUT'])
+def update_csv_row(csv_id, row_index):
+    if csv_id not in CSV_MAPPING:
+        return jsonify({'error': 'CSV not found'}), 404
+    
+    try:
+        data = request.json
+        df = pd.read_csv(CSV_MAPPING[csv_id])
+        
+        if row_index < 0 or row_index >= len(df):
+            return jsonify({'error': 'Row index out of range'}), 400
+        
+        # Update the row
+        for key, value in data.items():
+            if key in df.columns:
+                df.at[row_index, key] = value
+        
+        df.to_csv(CSV_MAPPING[csv_id], index=False)
+        
+        return jsonify({'success': True, 'data': df.to_dict(orient='records')})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+# 5. Route to delete a row from a CSV
+@app.route('/api/csv/<csv_id>/<int:row_index>', methods=['DELETE'])
+def delete_csv_row(csv_id, row_index):
+    if csv_id not in CSV_MAPPING:
+        return jsonify({'error': 'CSV not found'}), 404
+    
+    try:
+        df = pd.read_csv(CSV_MAPPING[csv_id])
+        
+        if row_index < 0 or row_index >= len(df):
+            return jsonify({'error': 'Row index out of range'}), 400
+        
+        # Delete the row
+        df = df.drop(row_index).reset_index(drop=True)
+        df.to_csv(CSV_MAPPING[csv_id], index=False)
+        
+        return jsonify({'success': True, 'data': df.to_dict(orient='records')})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+# 6. Route to get CSV schema (column names)
+@app.route('/api/csv/<csv_id>/schema', methods=['GET'])
+def get_csv_schema(csv_id):
+    if csv_id not in CSV_MAPPING:
+        return jsonify({'error': 'CSV not found'}), 404
+    
+    try:
+        df = pd.read_csv(CSV_MAPPING[csv_id])
+        return jsonify({'columns': list(df.columns)})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))  
