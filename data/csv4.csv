@@ -1,3 +1,3 @@
-team_number,timestamp,attempts
-1,2025-03-11 11:59:57,0
-1,2025-03-11 12:09:13,0
+team_number,timestamp,attempts,entry_number
+1,2025-03-11 11:59:57,0,1
+1,2025-03-11 12:09:13,0,2
