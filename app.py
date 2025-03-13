@@ -92,7 +92,6 @@ def serve_any(path):
     except:
         return send_from_directory(app.static_folder, 'index.html')
 
-# API endpoint to verify first stage credentials
 @app.route('/api/verify-first-stage', methods=['POST'])
 def verify_first_stage():
     data = request.json
@@ -114,21 +113,39 @@ def verify_first_stage():
         for _, row in df.iterrows():
             print(f"  team={row['team_number']}, passcode={row['passcode']}")
         
-        # Verify credentials
-        matched = df[(df['team_number'] == team_number) & (df['passcode'] == passcode)]
-        
-        if not matched.empty:
-            # Record successful entry in csv3
-            timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            entry_df = pd.read_csv(FIRST_STAGE_ENTRIES_CSV)
-            new_entry = pd.DataFrame([{'team_number': team_number, 'timestamp': timestamp}])
-            entry_df = pd.concat([entry_df, new_entry])
-            entry_df.to_csv(FIRST_STAGE_ENTRIES_CSV, index=False)
+        # Determine which credentials to check based on odd/even team number
+        try:
+            numeric_team = int(team_number)
+            # If team number is odd, use team 1 credentials; if even, use team 2 credentials
+            csv_team_to_check = "1" if numeric_team % 2 == 1 else "2"
+        except ValueError:
+            # If team number can't be converted to int, default to team 1
+            csv_team_to_check = "1"
             
-            return jsonify({'success': True})
+        print(f"Team number {team_number} is {'odd' if csv_team_to_check == '1' else 'even'}, checking against team {csv_team_to_check}")
+        
+        # Get the credentials for the determined team
+        team_creds = df[df['team_number'] == csv_team_to_check]
+        
+        if not team_creds.empty:
+            expected_passcode = team_creds.iloc[0]['passcode']
+            
+            # Verify credentials against the selected team's passcode
+            if passcode == expected_passcode:
+                # Record successful entry in csv3
+                timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                entry_df = pd.read_csv(FIRST_STAGE_ENTRIES_CSV)
+                new_entry = pd.DataFrame([{'team_number': team_number, 'timestamp': timestamp}])
+                entry_df = pd.concat([entry_df, new_entry])
+                entry_df.to_csv(FIRST_STAGE_ENTRIES_CSV, index=False)
+                
+                return jsonify({'success': True})
+            else:
+                print(f"Password mismatch for team {team_number} (checking against team {csv_team_to_check})")
+                return jsonify({'success': False, 'message': 'Invalid credentials'})
         else:
-            print(f"No match found for team={team_number}, passcode={passcode}")
-            return jsonify({'success': False, 'message': 'Invalid credentials'})
+            print(f"Team {csv_team_to_check} not found in credentials file")
+            return jsonify({'success': False, 'message': 'Configuration error'})
     
     except Exception as e:
         print(f"Error: {str(e)}")
@@ -155,6 +172,20 @@ def verify_second_stage():
         print("Available credentials in CSV:")
         for _, row in df.iterrows():
             print(f"  team={row['team_number']}, passcode={row['passcode']}")
+        
+        # Determine which credentials to check based on odd/even team number
+        try:
+            numeric_team = int(team_number)
+            # If team number is odd, use team 1 credentials; if even, use team 2 credentials
+            csv_team_to_check = "1" if numeric_team % 2 == 1 else "2"
+        except ValueError:
+            # If team number can't be converted to int, default to team 1
+            csv_team_to_check = "1"
+            
+        print(f"Team number {team_number} is {'odd' if csv_team_to_check == '1' else 'even'}, checking against team {csv_team_to_check}")
+        
+        # Get the credentials for the determined team
+        team_creds = df[df['team_number'] == csv_team_to_check]
         
         # Load the attempts tracking data
         attempts_file = 'attempts_tracking.csv'
@@ -188,38 +219,42 @@ def verify_second_stage():
         # Get current attempts count for this team
         current_attempts = attempts_df.loc[attempts_df['team_number'] == team_number, 'attempts'].values[0]
         
-        # Verify credentials
-        matched = df[(df['team_number'] == team_number) & (df['passcode'] == passcode)]
-        
-        if not matched.empty:
-            # Load entry data
-            entry_df = pd.read_csv(SECOND_STAGE_ENTRIES_CSV)
+        if not team_creds.empty:
+            expected_passcode = team_creds.iloc[0]['passcode']
             
-            # Calculate entry count for this team
-            team_entries = len(entry_df[entry_df['team_number'] == team_number]) + 1  # +1 for current entry
-            
-            # Record successful entry with attempts count and entry number
-            timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            
-            # Add attempts data to the entry
-            new_entry = pd.DataFrame([{
-                'team_number': team_number, 
-                'timestamp': timestamp,
-                'attempts': current_attempts,
-                'entry_number': team_entries
-            }])
-            
-            entry_df = pd.concat([entry_df, new_entry])
-            entry_df.to_csv(SECOND_STAGE_ENTRIES_CSV, index=False)
-            
-            # Reset attempts count for this team after successful login
-            attempts_df.loc[attempts_df['team_number'] == team_number, 'attempts'] = 0
-            attempts_df.to_csv(attempts_file, index=False)
-            
-            return jsonify({'success': True})
+            # Verify credentials against the selected team's passcode
+            if passcode == expected_passcode:
+                # Load entry data
+                entry_df = pd.read_csv(SECOND_STAGE_ENTRIES_CSV)
+                
+                # Calculate entry count for this team
+                team_entries = len(entry_df[entry_df['team_number'] == team_number]) + 1  # +1 for current entry
+                
+                # Record successful entry with attempts count and entry number
+                timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                
+                # Add attempts data to the entry
+                new_entry = pd.DataFrame([{
+                    'team_number': team_number, 
+                    'timestamp': timestamp,
+                    'attempts': current_attempts,
+                    'entry_number': team_entries
+                }])
+                
+                entry_df = pd.concat([entry_df, new_entry])
+                entry_df.to_csv(SECOND_STAGE_ENTRIES_CSV, index=False)
+                
+                # Reset attempts count for this team after successful login
+                attempts_df.loc[attempts_df['team_number'] == team_number, 'attempts'] = 0
+                attempts_df.to_csv(attempts_file, index=False)
+                
+                return jsonify({'success': True})
+            else:
+                print(f"Password mismatch for team {team_number} (checking against team {csv_team_to_check})")
+                return jsonify({'success': False, 'message': 'Invalid credentials'})
         else:
-            print(f"No match found for team={team_number}, passcode={passcode}")
-            return jsonify({'success': False, 'message': 'Invalid credentials'})
+            print(f"Team {csv_team_to_check} not found in credentials file")
+            return jsonify({'success': False, 'message': 'Configuration error'})
     
     except Exception as e:
         print(f"Error: {str(e)}")
