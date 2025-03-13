@@ -40,11 +40,27 @@ def initialize_csv_files():
             'passcode': ['delta321', 'epsilon654', 'zeta987']
         }).to_csv(SECOND_STAGE_CSV, index=False)
     
-    # Initialize entries CSVs
-    for csv_file in [FIRST_STAGE_ENTRIES_CSV, SECOND_STAGE_ENTRIES_CSV]:
-        if not os.path.exists(csv_file):
-            pd.DataFrame(columns=['team_number', 'timestamp']).to_csv(csv_file, index=False)
-
+    # Initialize attempts tracking CSV
+    attempts_file = 'attempts_tracking.csv'
+    if not os.path.exists(attempts_file):
+        pd.DataFrame(columns=['team_number', 'attempts']).to_csv(attempts_file, index=False)
+    
+    # Initialize first stage entries CSV with original structure
+    if not os.path.exists(FIRST_STAGE_ENTRIES_CSV):
+        pd.DataFrame(columns=['team_number', 'timestamp']).to_csv(FIRST_STAGE_ENTRIES_CSV, index=False)
+    
+    # Initialize second stage entries CSV with updated structure including attempts
+    if not os.path.exists(SECOND_STAGE_ENTRIES_CSV):
+        pd.DataFrame(columns=['team_number', 'timestamp', 'attempts']).to_csv(SECOND_STAGE_ENTRIES_CSV, index=False)
+    else:
+        # Update existing second stage entries CSV to include attempts column if it doesn't already exist
+        try:
+            df = pd.read_csv(SECOND_STAGE_ENTRIES_CSV)
+            if 'attempts' not in df.columns:
+                df['attempts'] = 0  # Initialize with zero for existing entries
+                df.to_csv(SECOND_STAGE_ENTRIES_CSV, index=False)
+        except Exception as e:
+            print(f"Error updating existing entries CSV: {str(e)}")
 # Initialize CSV files on startup
 initialize_csv_files()
 
