@@ -49,16 +49,31 @@ def initialize_csv_files():
     if not os.path.exists(FIRST_STAGE_ENTRIES_CSV):
         pd.DataFrame(columns=['team_number', 'timestamp']).to_csv(FIRST_STAGE_ENTRIES_CSV, index=False)
     
-    # Initialize second stage entries CSV with updated structure including attempts
+    # Initialize second stage entries CSV with updated structure including attempts and entry number
     if not os.path.exists(SECOND_STAGE_ENTRIES_CSV):
-        pd.DataFrame(columns=['team_number', 'timestamp', 'attempts']).to_csv(SECOND_STAGE_ENTRIES_CSV, index=False)
+        pd.DataFrame(columns=['team_number', 'timestamp', 'attempts', 'entry_number']).to_csv(SECOND_STAGE_ENTRIES_CSV, index=False)
     else:
-        # Update existing second stage entries CSV to include attempts column if it doesn't already exist
+        # Update existing second stage entries CSV to include attempts and entry_number columns
         try:
             df = pd.read_csv(SECOND_STAGE_ENTRIES_CSV)
+            
+            # Add attempts column if it doesn't exist
             if 'attempts' not in df.columns:
                 df['attempts'] = 0  # Initialize with zero for existing entries
-                df.to_csv(SECOND_STAGE_ENTRIES_CSV, index=False)
+            
+            # Add entry_number column if it doesn't exist
+            if 'entry_number' not in df.columns:
+                # Calculate entry numbers for each team
+                entry_numbers = []
+                for idx, row in df.iterrows():
+                    team = row['team_number']
+                    # Count entries for this team up to this point (inclusive)
+                    count = len(df.loc[:idx][df.loc[:idx]['team_number'] == team])
+                    entry_numbers.append(count)
+                
+                df['entry_number'] = entry_numbers
+            
+            df.to_csv(SECOND_STAGE_ENTRIES_CSV, index=False)
         except Exception as e:
             print(f"Error updating existing entries CSV: {str(e)}")
 # Initialize CSV files on startup
@@ -119,7 +134,6 @@ def verify_first_stage():
         print(f"Error: {str(e)}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
-# API endpoint to verify second stage credentials
 @app.route('/api/verify-second-stage', methods=['POST'])
 def verify_second_stage():
     data = request.json
@@ -178,15 +192,21 @@ def verify_second_stage():
         matched = df[(df['team_number'] == team_number) & (df['passcode'] == passcode)]
         
         if not matched.empty:
-            # Record successful entry with attempts count
-            timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            # Load entry data
             entry_df = pd.read_csv(SECOND_STAGE_ENTRIES_CSV)
+            
+            # Calculate entry count for this team
+            team_entries = len(entry_df[entry_df['team_number'] == team_number]) + 1  # +1 for current entry
+            
+            # Record successful entry with attempts count and entry number
+            timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             
             # Add attempts data to the entry
             new_entry = pd.DataFrame([{
                 'team_number': team_number, 
                 'timestamp': timestamp,
-                'attempts': current_attempts
+                'attempts': current_attempts,
+                'entry_number': team_entries
             }])
             
             entry_df = pd.concat([entry_df, new_entry])
@@ -204,7 +224,6 @@ def verify_second_stage():
     except Exception as e:
         print(f"Error: {str(e)}")
         return jsonify({'success': False, 'error': str(e)}), 500
-    
 # New Routes for CSV Management
 # 1. Route to get all available CSVs
 @app.route('/api/csv-files', methods=['GET'])
