@@ -114,6 +114,7 @@ def verify_second_stage():
     print(f"Received: team={team_number}, passcode={passcode}")
     
     try:
+        # Load the credentials database
         df = pd.read_csv(SECOND_STAGE_CSV)
         
         # Convert dataframe columns to strings and strip whitespace
@@ -125,16 +126,59 @@ def verify_second_stage():
         for _, row in df.iterrows():
             print(f"  team={row['team_number']}, passcode={row['passcode']}")
         
+        # Load the attempts tracking data
+        attempts_file = 'attempts_tracking.csv'
+        
+        # Create attempts file if it doesn't exist
+        if not os.path.exists(attempts_file):
+            pd.DataFrame(columns=['team_number', 'attempts']).to_csv(attempts_file, index=False)
+        
+        attempts_df = pd.read_csv(attempts_file)
+        
+        # Ensure attempts_df has the correct structure
+        if 'team_number' not in attempts_df.columns:
+            attempts_df['team_number'] = []
+        if 'attempts' not in attempts_df.columns:
+            attempts_df['attempts'] = []
+        
+        # Convert team_number to string for matching
+        attempts_df['team_number'] = attempts_df['team_number'].astype(str).str.strip()
+        
+        # Check if team exists in attempts_df, if not, add it
+        if team_number not in attempts_df['team_number'].values:
+            new_team = pd.DataFrame([{'team_number': team_number, 'attempts': 1}])
+            attempts_df = pd.concat([attempts_df, new_team])
+        else:
+            # Increment attempts count for this team
+            attempts_df.loc[attempts_df['team_number'] == team_number, 'attempts'] += 1
+        
+        # Save updated attempts count
+        attempts_df.to_csv(attempts_file, index=False)
+        
+        # Get current attempts count for this team
+        current_attempts = attempts_df.loc[attempts_df['team_number'] == team_number, 'attempts'].values[0]
+        
         # Verify credentials
         matched = df[(df['team_number'] == team_number) & (df['passcode'] == passcode)]
         
         if not matched.empty:
-            # Record successful entry in csv4
+            # Record successful entry with attempts count
             timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             entry_df = pd.read_csv(SECOND_STAGE_ENTRIES_CSV)
-            new_entry = pd.DataFrame([{'team_number': team_number, 'timestamp': timestamp}])
+            
+            # Add attempts data to the entry
+            new_entry = pd.DataFrame([{
+                'team_number': team_number, 
+                'timestamp': timestamp,
+                'attempts': current_attempts
+            }])
+            
             entry_df = pd.concat([entry_df, new_entry])
             entry_df.to_csv(SECOND_STAGE_ENTRIES_CSV, index=False)
+            
+            # Reset attempts count for this team after successful login
+            attempts_df.loc[attempts_df['team_number'] == team_number, 'attempts'] = 0
+            attempts_df.to_csv(attempts_file, index=False)
             
             return jsonify({'success': True})
         else:
@@ -144,7 +188,7 @@ def verify_second_stage():
     except Exception as e:
         print(f"Error: {str(e)}")
         return jsonify({'success': False, 'error': str(e)}), 500
-
+    
 # New Routes for CSV Management
 # 1. Route to get all available CSVs
 @app.route('/api/csv-files', methods=['GET'])
